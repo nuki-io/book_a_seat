@@ -1,11 +1,11 @@
-import { useRef, useState, useEffect, useContext } from 'react';
+import { useRef, useState, useContext } from 'react';
 import AuthContext from '../../context/AuthProvider';
 import styled from 'styled-components';
 import Button from 'react-bootstrap/Button';
 import Alert from 'react-bootstrap/Alert';
-import Postit from '../../components/Postit'
+import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/msal-browser";
+import { jwtDecode } from "jwt-decode";
 
-import axios from '../../api/axios';
 const SERVER_URL =  process.env.REACT_APP_SERVER_URL;
 const LOGIN_URL =  SERVER_URL + 'api/login';
 
@@ -22,6 +22,9 @@ const ElementStyle = styled.div`
     justify-content: flex-start;
     padding: 1rem;
     border: 1px solid rgba(0, 0, 0, 0.4);
+    h1 {
+      text-align:center;  
+    }
   }
 
   form {
@@ -30,10 +33,15 @@ const ElementStyle = styled.div`
     justify-content: space-evenly;
     flex-grow: 1;
     padding-bottom: 1rem;
-
+  
     label, button {
       margin-top: 0.6rem;
     }
+    img {
+      display: flex;
+      width: 200px;
+    }
+    
   }
 
   .wrapper_gif{
@@ -45,60 +53,51 @@ const ElementStyle = styled.div`
 
 const Login = () => {
 	const { setToken } = useContext(AuthContext);
-	const userRef = useRef();
+  const userRef = useRef();
 	const errRef = useRef();
 
-	const [user, setUser] = useState('user1');
-	const [pwd, setPwd] = useState('');
 	const [errMsg, setErrMsg] = useState('');
-	const [success, setSuccess] = useState(false);
-
-	useEffect(() => {
-    userRef.current.focus();
-	}, []);
-
-	useEffect(() => {
-    setErrMsg('');
-	}, [user, pwd]);
 
 	const handleSubmit = async (e) => {
     e.preventDefault();
-
-		try {
-			const response = await axios.post(
-				LOGIN_URL,
-				JSON.stringify({ user, pwd }),
-				{
-					headers: {
-            'Content-Type': 'application/json',
-          },
-					withCredentials: true,
-				}
-			);
-			const accessToken = response?.data?.token;
-			if (!accessToken) {
-        setErrMsg('Login or password wrong...');
-				setSuccess(false);
-			}else{
-				const role = response?.data?.role;
-				// console.log({ user, role, accessToken });
-				setToken({ user, role, accessToken });
-				setUser('');
-				setPwd('');
-				setSuccess(true);
-			}
-			
-		} catch (err) {
-			if (!err?.response) {
-        setErrMsg('No Server Response');
-			} else if (err.response?.status === 400) {
-				setErrMsg('Missing Username or Password');
-			} else if (err.response?.status === 401) {
-				setErrMsg('Unauthorized');
-			} else {
-				setErrMsg('Login Failed');
-			}
-		}
+    
+    // Create an instance of PublicClientApplication
+    const msalConfig = {
+      auth: {
+          clientId: process.env.REACT_APP_AZURE_CLIENT_ID,
+          authority: process.env.REACT_APP_AZURE_AUTHORITY,
+      }
+    };
+    
+    const msalInstance = new PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+    // Handle the redirect flows
+    msalInstance
+      .handleRedirectPromise()
+      .then((tokenResponse) => {
+        if (!tokenResponse ) {
+          msalInstance.loginPopup({
+              redirectUri: "http://localhost:3000/"
+          }).then((token=> {
+            const dToken = jwtDecode(token.accessToken);
+            setToken({
+              token: token.accessToken,
+              user: dToken.unique_name,
+              role: "admin" // TODO
+            })
+          }));
+        } else {
+          const dToken = jwtDecode(tokenResponse.accessToken);
+          setToken({
+            token: tokenResponse.accessToken,
+            user: dToken.unique_name,
+            role: "admin" // TODO
+          })
+        }
+      })
+      .catch((error) => {
+        console.log(error)
+      });
 	};
 
 	return (
@@ -114,40 +113,11 @@ const Login = () => {
         )}
         <h1>Sign In</h1>
         <form onSubmit={handleSubmit} className="form-group">
-          <label htmlFor="username">Username:</label>
-          <input
-            type="text"
-            id="username"
-            ref={userRef}
-            autoComplete="off"
-            onChange={(e) => setUser(e.target.value)}
-            value={user}
-            required
-            className="form-control"
-          />
-
-          <label htmlFor="password">Password:</label>
-          <input
-            type="password"
-            id="password"
-            onChange={(e) => setPwd(e.target.value)}
-            value={pwd}
-            // required
-            className="form-control"
-          />
+          <img src='nuki-logo.png' ></img>
           <Button type="submit">Sign In</Button>
         </form>
-        <p>
-          Need an Account?
-          <br />
-          <span className="line">
-            <a href="/register">Sign Up</a>
-          </span>
-        </p>
       </section>
-      <Postit/>
 
-      <img className="wrapper_gif"  src={require('./img2_readme.gif')} alt="Prototype video" />
 		</ElementStyle>
 	);
 };
